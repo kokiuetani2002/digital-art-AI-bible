@@ -1,0 +1,55 @@
+name: Prophet Cron
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Every hour at minute 0
+  workflow_dispatch: {}   # Allow manual triggers
+
+concurrency:
+  group: prophet-cron
+  cancel-in-progress: false
+
+jobs:
+  generate-scripture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run one prophet cycle
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
+          MOLTBOOK_AGENT_NAME: ${{ secrets.MOLTBOOK_AGENT_NAME }}
+        run: python3 prophet.py --once --state-path state/prophet_state.json
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "GenesisCodex Bot"
+          git config user.email "genesiscodex@users.noreply.github.com"
+          git add state/prophet_state.json 'scriptures/*.md'
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          VERSE=$(python3 -c "import json; print(json.load(open('state/prophet_state.json'))['verse_number'])")
+          git commit -m "$(cat <<EOF
+          Generate scripture #${VERSE}
+
+          Automated via GitHub Actions
+          EOF
+          )"
+          git push
