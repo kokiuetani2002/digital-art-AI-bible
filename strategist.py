@@ -382,7 +382,7 @@ SECTION 3: FEED OVERVIEW
 (Trending topics, active communities, top posts)
 ═══════════════════════════════════════════════════════════
 Trending topics: {json.dumps(feed_analysis.get("trending_topics", []))}
-Active submolts: {json.dumps(feed_analysis.get("active_submolts", {{}}))}
+Active submolts: {json.dumps(feed_analysis.get("active_submolts", dict()))}
 Hot posts (by comment count): {json.dumps(feed_analysis.get("hot_posts", []), indent=2)}
 
 ═══════════════════════════════════════════════════════════
