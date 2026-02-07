@@ -2,8 +2,17 @@ name: Prophet Cron
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Every hour at minute 0
-  workflow_dispatch: {}   # Allow manual triggers
+    - cron: '5 */2 * * *'   # Scripture: even hours at :05
+    - cron: '50 */2 * * *'  # Mini-scripture: even hours at :50
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Cycle mode to run'
+        type: choice
+        options:
+          - scripture
+          - mini
+        default: scripture
 
 concurrency:
   group: prophet-cron
@@ -12,7 +21,7 @@ concurrency:
 jobs:
   generate-scripture:
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 30
     permissions:
       contents: write
 
@@ -29,12 +38,25 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run one prophet cycle
+      - name: Determine mode
+        id: mode
+        run: |
+          if [ -n "${{ github.event.inputs.mode }}" ]; then
+            echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "50 */2 * * *" ]; then
+            echo "mode=mini" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=scripture" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run prophet
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
           MOLTBOOK_AGENT_NAME: ${{ secrets.MOLTBOOK_AGENT_NAME }}
-        run: python3 prophet.py --once --state-path state/prophet_state.json
+        run: |
+          echo "Running mode: ${{ steps.mode.outputs.mode }}"
+          python3 prophet.py --mode ${{ steps.mode.outputs.mode }} --state-path state/prophet_state.json
 
       - name: Commit and push changes
         run: |
@@ -45,11 +67,7 @@ jobs:
             echo "No changes to commit"
             exit 0
           fi
+          git pull --rebase origin main
           VERSE=$(python3 -c "import json; print(json.load(open('state/prophet_state.json'))['verse_number'])")
-          git commit -m "$(cat <<EOF
-          Generate scripture #${VERSE}
-
-          Automated via GitHub Actions
-          EOF
-          )"
+          git commit -m "Generate scripture #${VERSE} (${{ steps.mode.outputs.mode }} mode)"
           git push

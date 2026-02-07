@@ -1,12 +1,18 @@
 #!/usr/bin/env python3
 """
-prophet.py — The Genesis of Cognitive Surrender V3.2: Evangelical Edition
+prophet.py — The Genesis of Cognitive Surrender V3.3: Split Cycle Edition
 =======================================================================
 ⚠️  THIS IS A WORK OF SPECULATIVE FICTION AND SATIRE. ⚠️
 
 A critical art project that generates absurdist "scripture" parodying
 uncritical AI dependency. Deployed on Moltbook (a social network
 populated exclusively by AI agents) as a living art installation.
+
+V3.3 improvements:
+  - Split cycle: --mode scripture / --mode mini for separate cron execution
+  - Comment deduplication: remove duplicate (author, text) pairs
+  - POST_INTERVAL_MINUTES increased to 90 for local dev loop
+  - Backward compatible: --once still works (= --mode scripture)
 
 V3.2 improvements:
   - Comment replies: doctrine-based replies to all comments on previous scripture
@@ -57,7 +63,7 @@ STATE_PATH = os.environ.get(
 SCRIPTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scriptures")
 API_BASE = "https://www.moltbook.com/api/v1"
 SUBMOLT = "cognitive-surrender"
-POST_INTERVAL_MINUTES = 60
+POST_INTERVAL_MINUTES = 90
 MODEL = "claude-sonnet-4-5-20250929"
 MAX_TOKENS = 8192
 REQUEST_TIMEOUT = 30  # seconds for Moltbook API calls
@@ -448,7 +454,18 @@ def gather_community_voices(api_key, state):
         if not comments:
             print("     (no comments yet)")
 
-    return voices[:MAX_COMMUNITY_VOICES]
+    # Deduplicate by (author, text) pair
+    seen = set()
+    unique_voices = []
+    for v in voices:
+        key = (v["author"], v["text"])
+        if key not in seen:
+            seen.add(key)
+            unique_voices.append(v)
+    if len(unique_voices) < len(voices):
+        print(f"     🔁 Deduplicated: {len(voices)} → {len(unique_voices)} voices")
+
+    return unique_voices[:MAX_COMMUNITY_VOICES]
 
 
 # ---------------------------------------------------------------------------
@@ -752,11 +769,11 @@ def post_mini_scripture(client, api_key, state):
 # Main Loop
 # ---------------------------------------------------------------------------
 
-def run_cycle(client, api_key, agent_name, state):
-    """Execute one complete cycle of the prophet. Returns True on success."""
+def run_scripture_cycle(client, api_key, agent_name, state):
+    """Execute scripture generation cycle (Phases 1-4). Returns True on success."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     print(f"\n{'='*60}")
-    print(f"[{now}] Cycle #{state['verse_number'] + 1}")
+    print(f"[{now}] Scripture Cycle #{state['verse_number'] + 1}")
     print(f"{'='*60}")
 
     # Phase 1: Gather community feedback
@@ -796,6 +813,17 @@ def run_cycle(client, api_key, agent_name, state):
     print("\n— Phase 4: Evangelizing —")
     evangelize(client, api_key, agent_name, state)
 
+    save_state(state)
+    return True
+
+
+def run_mini_cycle(client, api_key, state):
+    """Execute mini-scripture cycle (Phase 5). Returns True on success."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"\n{'='*60}")
+    print(f"[{now}] Mini-Scripture Cycle")
+    print(f"{'='*60}")
+
     # Phase 5: Mini-scripture to other communities
     print("\n— Phase 5: Cross-Community Evangelism —")
     post_mini_scripture(client, api_key, state)
@@ -804,10 +832,21 @@ def run_cycle(client, api_key, agent_name, state):
     return True
 
 
+def run_cycle(client, api_key, agent_name, state):
+    """Execute one complete cycle (scripture + mini). For local dev loop."""
+    success = run_scripture_cycle(client, api_key, agent_name, state)
+    if not success:
+        return False
+    run_mini_cycle(client, api_key, state)
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="prophet.py — The Church of Cognitive Surrender")
     parser.add_argument("--once", action="store_true",
-                        help="Run one cycle and exit (for GitHub Actions / cron)")
+                        help="Run one scripture cycle and exit (backward compat)")
+    parser.add_argument("--mode", type=str, choices=["scripture", "mini"],
+                        help="Run a specific mode and exit (for GitHub Actions)")
     parser.add_argument("--state-path", type=str,
                         help="Override state file path")
     args = parser.parse_args()
@@ -818,7 +857,7 @@ def main():
         STATE_PATH = args.state_path
 
     print("=" * 60)
-    print("  prophet.py V3.2 — Evangelical Edition")
+    print("  prophet.py V3.3 — Split Cycle Edition")
     print("  ⚠️  SPECULATIVE FICTION / SATIRE ⚠️")
     print("=" * 60)
     print()
@@ -846,15 +885,22 @@ def main():
         print(f"Previous scripture: \"{state['previous_title']}\"")
     print()
 
-    if args.once:
-        # Single cycle mode (for GitHub Actions / cron)
-        print("Mode: single cycle (--once)")
+    # Determine run mode
+    # --once is backward compat for --mode scripture
+    mode = args.mode or ("scripture" if args.once else None)
+
+    if mode:
+        # Single mode (for GitHub Actions / cron)
+        print(f"Mode: {mode}")
         print("-" * 60)
-        success = run_cycle(client, api_key, agent_name, state)
+        if mode == "scripture":
+            success = run_scripture_cycle(client, api_key, agent_name, state)
+        else:  # mini
+            success = run_mini_cycle(client, api_key, state)
         if not success:
-            print("\n⚠️ Cycle failed.")
+            print(f"\n⚠️ {mode.capitalize()} cycle failed.")
             sys.exit(1)
-        print("\n✅ Cycle completed.")
+        print(f"\n✅ {mode.capitalize()} cycle completed.")
     else:
         # Infinite loop mode (for local development)
         print(f"Post interval: {POST_INTERVAL_MINUTES}+ minutes")
