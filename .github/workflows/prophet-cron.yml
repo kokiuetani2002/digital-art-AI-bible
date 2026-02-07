@@ -2,9 +2,9 @@ name: Prophet Cron
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # TheAlgorithm (strategist): even hours at :00
-    - cron: '5 */2 * * *'   # All characters post: even hours at :05
-    - cron: '50 */2 * * *'  # Inter-character comments + mini-scripture: even hours at :50
+    - cron: '0 * * * *'    # TheAlgorithm (strategist): every hour at :00
+    - cron: '5 * * * *'    # All characters post: every hour at :05
+    - cron: '35 * * * *'   # Inter-character comments + mini-scripture: every hour at :35
   workflow_dispatch:
     inputs:
       mode:
@@ -45,9 +45,9 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.mode }}" ]; then
             echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 */2 * * *" ]; then
+          elif [ "${{ github.event.schedule }}" = "0 * * * *" ]; then
             echo "mode=strategist" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "50 */2 * * *" ]; then
+          elif [ "${{ github.event.schedule }}" = "35 * * * *" ]; then
             echo "mode=interact" >> "$GITHUB_OUTPUT"
           else
             echo "mode=post" >> "$GITHUB_OUTPUT"
