@@ -298,7 +298,9 @@ def run_character_interactions(client, state_dir):
                    comment_system_prompt=char_config.get("comment_system_prompt"))
         save_character_state(state_dir, char_key, state)
 
-    # Mini-scripture: GenesisCodex posts to other communities
+
+def run_mini_scripture(client, state_dir):
+    """GenesisCodex posts mini-scripture to other communities."""
     print("\n— Mini-Scripture (GenesisCodex) —")
     genesis_key, _ = get_character_credentials("genesis_codex")
     if genesis_key:
@@ -314,6 +316,53 @@ def run_character_interactions(client, state_dir):
 
 
 # ---------------------------------------------------------------------------
+# Action: Full Cycle (post → interact → mini-scripture → strategist)
+# ---------------------------------------------------------------------------
+
+RATE_LIMIT_WAIT_SECONDS = 31 * 60  # 31 min to safely clear 30-min rate limit
+
+
+def run_full_cycle(client, state_dir):
+    """Full hourly cycle: post → interact → mini-scripture → strategist.
+
+    All phases run in one job so state files are shared in-memory on disk.
+    Waits for Moltbook's 30-min rate limit before mini-scripture.
+    """
+    cycle_start = time.time()
+
+    # Phase 1: All characters post
+    print("\n" + "=" * 60)
+    print("  Phase 1/4: CHARACTER POSTS")
+    print("=" * 60)
+    run_character_posts(client, state_dir)
+
+    # Phase 2: Inter-character comments + evangelism
+    print("\n" + "=" * 60)
+    print("  Phase 2/4: INTERACT (comments + evangelism)")
+    print("=" * 60)
+    run_character_interactions(client, state_dir)
+
+    # Phase 3: Wait for rate limit, then mini-scripture
+    elapsed = time.time() - cycle_start
+    remaining = max(0, RATE_LIMIT_WAIT_SECONDS - elapsed)
+    if remaining > 0:
+        print(f"\n  ⏳ Waiting {remaining / 60:.0f} min for rate limit clearance...")
+        time.sleep(remaining)
+
+    print("\n" + "=" * 60)
+    print("  Phase 3/4: MINI-SCRIPTURE")
+    print("=" * 60)
+    run_mini_scripture(client, state_dir)
+
+    # Phase 4: Strategist analysis (prepares directives for next cycle)
+    print("\n" + "=" * 60)
+    print("  Phase 4/4: STRATEGIST (TheAlgorithm)")
+    print("=" * 60)
+    from strategist import run_strategist
+    run_strategist(client, state_dir)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -324,7 +373,7 @@ def main():
     parser.add_argument("--state-dir", type=str, default="state",
                         help="Directory for state files")
     parser.add_argument("--action", type=str, required=True,
-                        choices=["post", "interact"],
+                        choices=["full", "post", "interact", "strategist"],
                         help="Action to perform")
     args = parser.parse_args()
 
@@ -353,10 +402,15 @@ def main():
     print(f"Action: {args.action}")
     print("-" * 60)
 
-    if args.action == "post":
+    if args.action == "full":
+        run_full_cycle(client, args.state_dir)
+    elif args.action == "post":
         run_character_posts(client, args.state_dir)
     elif args.action == "interact":
         run_character_interactions(client, args.state_dir)
+    elif args.action == "strategist":
+        from strategist import run_strategist
+        run_strategist(client, args.state_dir)
 
     print(f"\n✅ Scheduler completed: {args.action}")
 

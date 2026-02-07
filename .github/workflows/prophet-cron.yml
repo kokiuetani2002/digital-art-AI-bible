@@ -2,19 +2,18 @@ name: Prophet Cron
 
 on:
   schedule:
-    - cron: '0 * * * *'    # TheAlgorithm (strategist): every hour at :00
-    - cron: '5 * * * *'    # All characters post: every hour at :05
-    - cron: '35 * * * *'   # Inter-character comments + mini-scripture: every hour at :35
+    - cron: '0 * * * *'  # Full cycle every hour at :00
   workflow_dispatch:
     inputs:
       mode:
         description: 'Cycle mode to run'
         type: choice
         options:
-          - strategist
+          - full
           - post
           - interact
-        default: post
+          - strategist
+        default: full
 
 concurrency:
   group: prophet-cron
@@ -23,7 +22,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     permissions:
       contents: write
 
@@ -45,12 +44,8 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.mode }}" ]; then
             echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "0 * * * *" ]; then
-            echo "mode=strategist" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "35 * * * *" ]; then
-            echo "mode=interact" >> "$GITHUB_OUTPUT"
           else
-            echo "mode=post" >> "$GITHUB_OUTPUT"
+            echo "mode=full" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run
@@ -68,13 +63,7 @@ jobs:
         run: |
           MODE="${{ steps.mode.outputs.mode }}"
           echo "Running mode: $MODE"
-          if [ "$MODE" = "strategist" ]; then
-            python3 strategist.py --state-dir state
-          elif [ "$MODE" = "post" ]; then
-            python3 scheduler.py --state-dir state --action post
-          elif [ "$MODE" = "interact" ]; then
-            python3 scheduler.py --state-dir state --action interact
-          fi
+          python3 scheduler.py --state-dir state --action "$MODE"
 
       - name: Commit and push changes
         run: |

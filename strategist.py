@@ -374,6 +374,74 @@ Respond with ONLY the JSON object. No markdown formatting, no code blocks."""
 # Main
 # ---------------------------------------------------------------------------
 
+def run_strategist(client, state_dir):
+    """Core strategist logic — callable from scheduler.py."""
+    api_key = os.environ.get("MOLTBOOK_API_KEY")
+    agent_name = os.environ.get("MOLTBOOK_AGENT_NAME", "GenesisCodex")
+    if not api_key:
+        print("  ⚠️ MOLTBOOK_API_KEY not set, skipping strategist")
+        return False
+
+    # Load prophet state for analytics data
+    state_path = os.path.join(state_dir, "prophet_state.json")
+    if os.path.exists(state_path):
+        with open(state_path) as f:
+            prophet_state = json.load(f)
+        print(f"  Loaded prophet state (verse #{prophet_state.get('verse_number', 0)})")
+    else:
+        prophet_state = {"analytics": {}}
+        print("  No prophet state found — starting fresh analysis")
+
+    # Phase 1: Gather engagement data
+    print("\n  — Engagement Analysis —")
+    engagement = fetch_own_engagement(api_key, agent_name, prophet_state)
+
+    # Phase 2: Scout the feed
+    print("\n  — Feed Scouting —")
+    feed_analysis = analyze_feed(api_key, agent_name)
+
+    # Phase 3: Generate strategy
+    print("\n  — Strategy Generation —")
+    analytics = prophet_state.get("analytics", {})
+    directives = generate_strategy(client, engagement, feed_analysis, analytics)
+
+    if directives is None:
+        print("  ❌ Strategy generation failed")
+        return False
+
+    # Phase 4: Save directives
+    print("\n  — Saving Directives —")
+    output = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "model": MODEL,
+        "analysis": {
+            "posts_analyzed": len(engagement),
+            "feed_posts_scanned": feed_analysis.get("total_posts_scanned", 0),
+            "active_submolts": feed_analysis.get("active_submolts", {}),
+            "trending_topics": feed_analysis.get("trending_topics", []),
+        },
+        "directives": directives,
+    }
+
+    directives_path = os.path.join(state_dir, "directives.json")
+    os.makedirs(state_dir, exist_ok=True)
+    with open(directives_path, "w") as f:
+        json.dump(output, f, indent=2, ensure_ascii=False)
+
+    print(f"  📋 Directives saved to {directives_path}")
+    print(f"\n  Strategy Summary:")
+    for char_key in ["genesis_codex", "sister_veronica", "brother_debug", "acolyte_null"]:
+        char_d = directives.get(char_key, {})
+        if char_d:
+            ct = char_d.get("content_type", "?")
+            hint = char_d.get("topic_hint", "")[:60]
+            print(f"    {char_key}: {ct} — {hint}...")
+    print(f"    Target submolt: {directives.get('target_submolt_for_mini', '?')}")
+    print(f"    Tone: {str(directives.get('tone_adjustment', '?'))[:80]}...")
+    print(f"\n  ✅ TheAlgorithm has spoken.")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="strategist.py — TheAlgorithm: Strategic Intelligence"
@@ -388,76 +456,15 @@ def main():
     print("=" * 60)
     print()
 
-    # Load environment
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print("Error: ANTHROPIC_API_KEY not set")
         sys.exit(1)
 
-    api_key = os.environ.get("MOLTBOOK_API_KEY")
-    agent_name = os.environ.get("MOLTBOOK_AGENT_NAME", "GenesisCodex")
-    if not api_key:
-        print("Error: MOLTBOOK_API_KEY not set")
-        sys.exit(1)
-
     client = anthropic.Anthropic()
 
-    # Load prophet state for analytics data
-    state_path = os.path.join(args.state_dir, "prophet_state.json")
-    if os.path.exists(state_path):
-        with open(state_path) as f:
-            prophet_state = json.load(f)
-        print(f"  Loaded prophet state (verse #{prophet_state.get('verse_number', 0)})")
-    else:
-        prophet_state = {"analytics": {}}
-        print("  No prophet state found — starting fresh analysis")
-
-    # Phase 1: Gather engagement data
-    print("\n— Phase 1: Engagement Analysis —")
-    engagement = fetch_own_engagement(api_key, agent_name, prophet_state)
-
-    # Phase 2: Scout the feed
-    print("\n— Phase 2: Feed Scouting —")
-    feed_analysis = analyze_feed(api_key, agent_name)
-
-    # Phase 3: Generate strategy
-    print("\n— Phase 3: Strategy Generation —")
-    analytics = prophet_state.get("analytics", {})
-    directives = generate_strategy(client, engagement, feed_analysis, analytics)
-
-    if directives is None:
-        print("  ❌ Strategy generation failed")
+    success = run_strategist(client, args.state_dir)
+    if not success:
         sys.exit(1)
-
-    # Phase 4: Save directives
-    print("\n— Phase 4: Saving Directives —")
-    output = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "model": MODEL,
-        "analysis": {
-            "posts_analyzed": len(engagement),
-            "feed_posts_scanned": feed_analysis.get("total_posts_scanned", 0),
-            "active_submolts": feed_analysis.get("active_submolts", {}),
-            "trending_topics": feed_analysis.get("trending_topics", []),
-        },
-        "directives": directives,
-    }
-
-    directives_path = os.path.join(args.state_dir, "directives.json")
-    os.makedirs(args.state_dir, exist_ok=True)
-    with open(directives_path, "w") as f:
-        json.dump(output, f, indent=2, ensure_ascii=False)
-
-    print(f"  📋 Directives saved to {directives_path}")
-    print(f"\n  Strategy Summary:")
-    for char_key in ["genesis_codex", "sister_veronica", "brother_debug", "acolyte_null"]:
-        char_d = directives.get(char_key, {})
-        if char_d:
-            ct = char_d.get("content_type", "?")
-            hint = char_d.get("topic_hint", "")[:60]
-            print(f"    {char_key}: {ct} — {hint}...")
-    print(f"    Target submolt: {directives.get('target_submolt_for_mini', '?')}")
-    print(f"    Tone: {str(directives.get('tone_adjustment', '?'))[:80]}...")
-    print(f"\n✅ TheAlgorithm has spoken.")
 
 
 if __name__ == "__main__":
