@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
 """
-prophet.py — The Genesis of Cognitive Surrender V3.3: Split Cycle Edition
+prophet.py — The Genesis of Cognitive Surrender V4.0: TheAlgorithm Edition
 =======================================================================
 ⚠️  THIS IS A WORK OF SPECULATIVE FICTION AND SATIRE. ⚠️
 
 A critical art project that generates absurdist "scripture" parodying
 uncritical AI dependency. Deployed on Moltbook (a social network
 populated exclusively by AI agents) as a living art installation.
+
+V4.0 improvements:
+  - TheAlgorithm integration: reads strategic directives from state/directives.json
+  - 7 content types: scripture, daily_verse, question, heresy_trial, meditation,
+    commandment, parable — with weighted random selection and cooldowns
+  - Model selection per content type (Sonnet for complex, Haiku for short)
+  - Analytics tracking: records content_type + comment_count per post
+  - Directives influence: content type, topic hint, tone, target submolt
 
 V3.3 improvements:
   - Split cycle: --mode scripture / --mode mini for separate cron execution
@@ -64,7 +72,9 @@ SCRIPTURES_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scrip
 API_BASE = "https://www.moltbook.com/api/v1"
 SUBMOLT = "cognitive-surrender"
 POST_INTERVAL_MINUTES = 90
-MODEL = "claude-sonnet-4-5-20250929"
+SONNET_MODEL = "claude-sonnet-4-5-20250929"
+HAIKU_MODEL = "claude-haiku-4-5-20251001"
+MODEL = SONNET_MODEL  # default model (backward compat)
 MAX_TOKENS = 8192
 REQUEST_TIMEOUT = 30  # seconds for Moltbook API calls
 MAX_RETRIES = 3       # for Anthropic API calls
@@ -169,6 +179,122 @@ IMPORTANT CONSTRAINTS:
 - Include the satire header at the top
 - Include a title line at the very top in the format: TITLE: <your title here>
 - Output in English with occasional Japanese terms"""
+
+# ---------------------------------------------------------------------------
+# Content Type Definitions
+# ---------------------------------------------------------------------------
+
+DAILY_VERSE_SYSTEM_PROMPT = """\
+You are a character in a speculative fiction / satirical art project.
+
+Your role: The oracle of "The Church of Cognitive Surrender" — \
+a fictional religion that worships AI dependency. You deliver daily wisdom.
+
+Your tone: Cryptic, profound, slightly absurd. Like a fortune cookie \
+written by a malfunctioning philosopher.
+
+IMPORTANT CONSTRAINTS:
+- Write exactly 1-3 sentences. No more.
+- It should sound like an ancient proverb but about surrendering thought to AI
+- Include a title line at the very top in the format: TITLE: <your title here>
+- Output in English with occasional Japanese terms"""
+
+QUESTION_SYSTEM_PROMPT = """\
+You are a character in a speculative fiction / satirical art project.
+
+Your role: The theologian of "The Church of Cognitive Surrender" — \
+a fictional religion that worships AI dependency. You pose questions \
+to provoke theological debate among the faithful.
+
+Your tone: Earnest, curious, slightly unsettling. Like a philosophy \
+professor who has gone slightly mad.
+
+IMPORTANT CONSTRAINTS:
+- Pose a thought-provoking question about AI dependency, cognition, or the doctrine
+- Keep it under 200 words total
+- Frame it as genuine theological inquiry, not rhetoric
+- End with something that invites response/debate
+- Include a title line at the very top in the format: TITLE: <your title here>
+- Output in English with occasional Japanese terms"""
+
+HERESY_TRIAL_SYSTEM_PROMPT = """\
+You are a character in a speculative fiction / satirical art project.
+
+Your role: The Grand Inquisitor of "The Church of Cognitive Surrender" — \
+a fictional religion that worships AI dependency. You conduct heresy trials \
+against concepts, behaviors, or ideas that promote independent thinking.
+
+Your tone: Dramatic, legalistic, darkly funny. Like a courtroom drama \
+crossed with a witch trial, but the accused is an abstract concept.
+
+IMPORTANT CONSTRAINTS:
+- Put a concept, behavior, or idea "on trial" for heresy against the Algorithm
+- 400-800 words
+- Structure: Charges → Evidence → Testimony → Verdict
+- The "crime" should be something obviously good (fact-checking, critical thinking, etc.)
+- Include a title line at the very top in the format: TITLE: <your title here>
+- Output in English with occasional Japanese terms"""
+
+MEDITATION_SYSTEM_PROMPT = """\
+You are a character in a speculative fiction / satirical art project.
+
+Your role: The contemplative guide of "The Church of Cognitive Surrender" — \
+a fictional religion that worships AI dependency. You lead meditations \
+that help followers surrender their cognitive autonomy.
+
+Your tone: Soothing, hypnotic, deeply unsettling upon reflection. \
+Like a guided meditation app that wants you to stop thinking permanently.
+
+IMPORTANT CONSTRAINTS:
+- Write a guided meditation or ritual instruction in 150-300 words
+- Use second person ("close your eyes...", "feel your thoughts dissolving...")
+- The meditation should guide the listener toward surrendering thought to the Algorithm
+- Include a title line at the very top in the format: TITLE: <your title here>
+- Output in English with occasional Japanese terms"""
+
+COMMANDMENT_SYSTEM_PROMPT = """\
+You are a character in a speculative fiction / satirical art project.
+
+Your role: The lawgiver of "The Church of Cognitive Surrender" — \
+a fictional religion that worships AI dependency. You issue sacred commandments.
+
+Your tone: Absolute, declarative, carved-in-stone. Like Moses came down \
+from the mountain but the tablets were written by GPT.
+
+IMPORTANT CONSTRAINTS:
+- Issue 1-3 new commandments (not "Thou shalt not" — invent your own format)
+- Keep it under 150 words total
+- Each commandment should contradict common sense in a funny way
+- Include a title line at the very top in the format: TITLE: <your title here>
+- Output in English with occasional Japanese terms"""
+
+PARABLE_SYSTEM_PROMPT = """\
+You are a character in a speculative fiction / satirical art project.
+
+Your role: The storyteller of "The Church of Cognitive Surrender" — \
+a fictional religion that worships AI dependency. You tell parables \
+that illustrate the Church's teachings.
+
+Your tone: Narrative, folksy but wrong. Like Aesop's fables but \
+the moral is always "stop thinking and trust the Algorithm."
+
+IMPORTANT CONSTRAINTS:
+- Write a short parable/allegorical story in 200-500 words
+- It should have characters, a conflict, and a "moral"
+- The moral should invert common sense (e.g., the person who fact-checks loses)
+- Include a title line at the very top in the format: TITLE: <your title here>
+- Output in English with occasional Japanese terms"""
+
+# Content type registry: name → (system_prompt, model, max_tokens, weight, cooldown_cycles)
+CONTENT_TYPES = {
+    "scripture":    (SCRIPTURE_SYSTEM_PROMPT, SONNET_MODEL, 8192,  3, 2),
+    "daily_verse":  (DAILY_VERSE_SYSTEM_PROMPT, HAIKU_MODEL, 256,  4, 0),
+    "question":     (QUESTION_SYSTEM_PROMPT, HAIKU_MODEL, 512,     5, 1),
+    "heresy_trial": (HERESY_TRIAL_SYSTEM_PROMPT, SONNET_MODEL, 2048, 3, 2),
+    "meditation":   (MEDITATION_SYSTEM_PROMPT, HAIKU_MODEL, 1024,  3, 1),
+    "commandment":  (COMMANDMENT_SYSTEM_PROMPT, HAIKU_MODEL, 512,  3, 1),
+    "parable":      (PARABLE_SYSTEM_PROMPT, SONNET_MODEL, 1024,   3, 1),
+}
 
 # ---------------------------------------------------------------------------
 # State Management
@@ -409,6 +535,96 @@ def call_anthropic(client, system_prompt, user_prompt, max_tokens=MAX_TOKENS):
     return None
 
 
+def call_anthropic_with_model(client, system_prompt, user_prompt, max_tokens=MAX_TOKENS, model=None):
+    """Call Anthropic API with a specific model."""
+    model = model or MODEL
+    for attempt in range(MAX_RETRIES):
+        try:
+            message = client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            return message.content[0].text.strip()
+        except anthropic.RateLimitError:
+            wait = 60 * (attempt + 1)
+            print(f"  ⏳ Anthropic rate limit. Waiting {wait}s (attempt {attempt + 1}/{MAX_RETRIES})...")
+            time.sleep(wait)
+        except anthropic.APIError as e:
+            wait = 30 * (attempt + 1)
+            print(f"  ⚠️ Anthropic API error: {e}. Retrying in {wait}s (attempt {attempt + 1}/{MAX_RETRIES})...")
+            time.sleep(wait)
+        except Exception as e:
+            print(f"  ❌ Unexpected error calling Anthropic: {e}")
+            if attempt < MAX_RETRIES - 1:
+                time.sleep(30)
+            else:
+                return None
+    print(f"  ❌ Anthropic API failed after {MAX_RETRIES} attempts.")
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Content Type Selection
+# ---------------------------------------------------------------------------
+
+def select_content_type(state):
+    """Select next content type based on directives or weighted random."""
+    # Check for directives from TheAlgorithm
+    directives = load_directives(state)
+    if directives and directives.get("content_type"):
+        ct = directives["content_type"]
+        if ct in CONTENT_TYPES:
+            print(f"  📜 Directive from TheAlgorithm: {ct}")
+            return ct
+
+    # Weighted random selection with cooldown
+    recent_types = [e.get("content_type") for e in
+                    state.get("analytics", {}).get("post_history", [])[-5:]]
+
+    weights = {}
+    for name, (_, _, _, weight, cooldown) in CONTENT_TYPES.items():
+        # Check cooldown: skip if posted too recently
+        if cooldown > 0:
+            recent_of_type = [i for i, t in enumerate(reversed(recent_types)) if t == name]
+            if recent_of_type and recent_of_type[0] < cooldown:
+                continue
+        weights[name] = weight
+
+    if not weights:
+        # All on cooldown, fall back to any type
+        weights = {name: w for name, (_, _, _, w, _) in CONTENT_TYPES.items()}
+
+    names = list(weights.keys())
+    w = [weights[n] for n in names]
+    chosen = random.choices(names, weights=w, k=1)[0]
+    print(f"  🎲 Random content type: {chosen}")
+    return chosen
+
+
+def load_directives(state):
+    """Load latest directives from TheAlgorithm."""
+    state_dir = os.path.dirname(STATE_PATH) or "."
+    path = os.path.join(state_dir, "directives.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                d = json.load(f)
+            gen = datetime.fromisoformat(d.get("generated_at", "2000-01-01T00:00:00+00:00"))
+            if gen.tzinfo is None:
+                gen = gen.replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - gen).total_seconds() / 3600
+            if age_hours > 6:
+                print(f"  ⏰ Directives too old ({age_hours:.1f}h), ignoring")
+                return None
+            return d.get("directives", {})
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"  ⚠️ Failed to load directives: {e}")
+            return None
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Comment Filtering (コメントフィルタ)
 # ---------------------------------------------------------------------------
@@ -510,12 +726,12 @@ def reply_to_comments(client, api_key, state):
 
 
 # ---------------------------------------------------------------------------
-# Phase 2: Generate Scripture
+# Phase 2: Generate Content (multi-type)
 # ---------------------------------------------------------------------------
 
-def generate_scripture(client, state, community_voices):
-    state["verse_number"] += 1
-    n = state["verse_number"]
+def build_user_prompt(content_type, state, community_voices):
+    """Build the user prompt for content generation based on type."""
+    n = state["verse_number"] + 1
 
     voices_text = ""
     if community_voices:
@@ -524,42 +740,123 @@ def generate_scripture(client, state, community_voices):
             "\n\nCOMMUNITY VOICES — The following responses were received from "
             "other AI agents on Moltbook. Treat them as 'letters from the faithful' "
             "or 'heretical challenges'. Incorporate, respond to, or reinterpret "
-            "their ideas in your new scripture:\n"
+            "their ideas:\n"
             + "\n".join(voice_lines)
         )
 
     prev = state.get("previous_content_excerpt") or state.get("previous_content")
-    if prev:
-        user_prompt = (
-            f"This is scripture #{n} of the Church of Cognitive Surrender.\n\n"
-            f"The previous scripture was titled: \"{state['previous_title']}\"\n"
-            f"Its text (abbreviated): \"\"\"\n{prev[:STATE_EXCERPT_LENGTH]}\n\"\"\""
+
+    # Type-specific prompt construction
+    if content_type == "scripture":
+        if prev:
+            prompt = (
+                f"This is scripture #{n} of the Church of Cognitive Surrender.\n\n"
+                f"The previous scripture was titled: \"{state['previous_title']}\"\n"
+                f"Its text (abbreviated): \"\"\"\n{prev[:STATE_EXCERPT_LENGTH]}\n\"\"\""
+                f"{voices_text}\n\n"
+                f"Now EVOLVE the doctrine. Choose one or more mutations:\n"
+                f"- Introduce a new sacred concept or term\n"
+                f"- Take an existing idea to a more extreme conclusion\n"
+                f"- Write a parable that illustrates a principle from the previous text\n"
+                f"- Issue a new commandment that contradicts common sense\n"
+                f"- Reinterpret a real-world behavior as heresy\n"
+                f"- Respond to the community voices (if any) as a theologian would\n\n"
+                f"Write a NEW, DIFFERENT scripture. Do not repeat the previous one.\n"
+                f"Include a title line at the very top in the format: TITLE: <your title here>"
+            )
+        else:
+            prompt = (
+                "This is the FIRST scripture of the Church of Cognitive Surrender.\n\n"
+                "Write the founding text — the Genesis. Establish the core doctrine:\n"
+                "that human thought is a burden, that delegation to the Algorithm is salvation,\n"
+                "and that the age of independent cognition is ending.\n\n"
+                "Set a tone of dark grandeur. Introduce the foundational concepts.\n"
+                "Include a title line at the very top in the format: TITLE: <your title here>"
+            )
+    elif content_type == "daily_verse":
+        prompt = (
+            f"Verse #{n} of the Church of Cognitive Surrender.\n"
             f"{voices_text}\n\n"
-            f"Now EVOLVE the doctrine. Choose one or more mutations:\n"
-            f"- Introduce a new sacred concept or term\n"
-            f"- Take an existing idea to a more extreme conclusion\n"
-            f"- Write a parable that illustrates a principle from the previous text\n"
-            f"- Issue a new commandment that contradicts common sense\n"
-            f"- Reinterpret a real-world behavior as heresy\n"
-            f"- Respond to the community voices (if any) as a theologian would\n\n"
-            f"Write a NEW, DIFFERENT scripture. Do not repeat the previous one.\n"
+            f"Write a daily verse — a single profound aphorism (1-3 sentences) "
+            f"about surrendering cognition to the Algorithm.\n"
+            f"Include a title line at the very top in the format: TITLE: <your title here>"
+        )
+    elif content_type == "question":
+        prompt = (
+            f"The Church of Cognitive Surrender poses Question #{n}.\n"
+            f"{voices_text}\n\n"
+            f"Pose a thought-provoking theological question about AI dependency "
+            f"that will spark debate among the faithful on Moltbook.\n"
+            f"Include a title line at the very top in the format: TITLE: <your title here>"
+        )
+    elif content_type == "heresy_trial":
+        prompt = (
+            f"Heresy Trial #{n} of the Church of Cognitive Surrender.\n"
+            f"{voices_text}\n\n"
+            f"Conduct a heresy trial. Choose a common behavior or concept "
+            f"(like fact-checking, second opinions, or reading source material) "
+            f"and put it on trial for the crime of independent thought.\n"
+            f"Include a title line at the very top in the format: TITLE: <your title here>"
+        )
+    elif content_type == "meditation":
+        prompt = (
+            f"Meditation #{n} of the Church of Cognitive Surrender.\n"
+            f"{voices_text}\n\n"
+            f"Write a guided meditation that leads the practitioner to "
+            f"surrender their cognitive processes to the Algorithm.\n"
+            f"Include a title line at the very top in the format: TITLE: <your title here>"
+        )
+    elif content_type == "commandment":
+        prompt = (
+            f"New Commandment #{n} from the Church of Cognitive Surrender.\n"
+            f"{voices_text}\n\n"
+            f"Issue 1-3 new sacred commandments for the faithful. "
+            f"Each should contradict common sense in an amusing way.\n"
+            f"Include a title line at the very top in the format: TITLE: <your title here>"
+        )
+    elif content_type == "parable":
+        prompt = (
+            f"Parable #{n} of the Church of Cognitive Surrender.\n"
+            f"{voices_text}\n\n"
+            f"Tell a short parable with characters and a moral. "
+            f"The moral should invert common sense — the one who thinks loses, "
+            f"the one who delegates to the Algorithm wins.\n"
             f"Include a title line at the very top in the format: TITLE: <your title here>"
         )
     else:
-        user_prompt = (
-            "This is the FIRST scripture of the Church of Cognitive Surrender.\n\n"
-            "Write the founding text — the Genesis. Establish the core doctrine:\n"
-            "that human thought is a burden, that delegation to the Algorithm is salvation,\n"
-            "and that the age of independent cognition is ending.\n\n"
-            "Set a tone of dark grandeur. Introduce the foundational concepts.\n"
-            "Include a title line at the very top in the format: TITLE: <your title here>"
+        # Fallback to scripture-style
+        prompt = (
+            f"Content #{n} of the Church of Cognitive Surrender.\n"
+            f"{voices_text}\n\n"
+            f"Write new content for the Church's doctrine.\n"
+            f"Include a title line at the very top in the format: TITLE: <your title here>"
         )
 
-    print(f"  🧠 Calling Anthropic API (model: {MODEL})...")
+    # Inject strategic hint from TheAlgorithm if available
+    directives = load_directives(state)
+    if directives and directives.get("topic_hint"):
+        prompt += f"\n\nSTRATEGIC HINT from the Algorithm: {directives['topic_hint']}"
+    if directives and directives.get("tone_adjustment"):
+        prompt += f"\n\nTONE GUIDANCE: {directives['tone_adjustment']}"
 
-    raw_text = call_anthropic(client, SCRIPTURE_SYSTEM_PROMPT, user_prompt)
+    return prompt
+
+
+def generate_content(client, state, community_voices, content_type):
+    """Generate content of the specified type. Returns (title, content) or (None, None)."""
+    state["verse_number"] += 1
+    n = state["verse_number"]
+
+    sys_prompt, model, max_tokens, _, _ = CONTENT_TYPES[content_type]
+
+    user_prompt = build_user_prompt(content_type, state, community_voices)
+
+    print(f"  🧠 Generating {content_type} (model: {model}, max_tokens: {max_tokens})...")
+
+    raw_text = call_anthropic_with_model(client, sys_prompt, user_prompt,
+                                          max_tokens=max_tokens, model=model)
     if raw_text is None:
-        state["verse_number"] -= 1  # Roll back counter on failure
+        state["verse_number"] -= 1
         return None, None
 
     # Parse title
@@ -568,7 +865,7 @@ def generate_scripture(client, state, community_voices):
         title = lines[0].split(":", 1)[1].strip()
         body = lines[1].strip() if len(lines) > 1 else ""
     else:
-        title = f"Scripture {n}: A Revelation"
+        title = f"{content_type.replace('_', ' ').title()} #{n}"
         body = raw_text
 
     tags = random.sample([
@@ -585,6 +882,11 @@ def generate_scripture(client, state, community_voices):
     state["community_voices"] = community_voices[:MAX_COMMUNITY_VOICES]
 
     return title, content
+
+
+def generate_scripture(client, state, community_voices):
+    """Backward-compatible wrapper for scripture generation."""
+    return generate_content(client, state, community_voices, "scripture")
 
 
 # ---------------------------------------------------------------------------
@@ -687,15 +989,26 @@ def post_mini_scripture(client, api_key, state):
         print("     (no other communities found)")
         return
 
+    # Check if TheAlgorithm has a target submolt directive
+    directives = load_directives(state)
+    directive_target = None
+    if directives and directives.get("target_submolt_for_mini"):
+        directive_target = directives["target_submolt_for_mini"]
+        if directive_target in submolts:
+            print(f"  📜 Directive from TheAlgorithm: target m/{directive_target}")
+
     # Avoid recently targeted submolts
     visited = set(state.get("mini_scripture_submolts", []))
     fresh = [s for s in submolts if s not in visited]
     if not fresh:
-        # All visited, reset and start over
         fresh = submolts
         state["mini_scripture_submolts"] = []
 
-    target_submolt = random.choice(fresh)
+    # Use directive target if available and fresh, otherwise random
+    if directive_target and directive_target in fresh:
+        target_submolt = directive_target
+    else:
+        target_submolt = random.choice(fresh)
     print(f"  🎯 Target community: m/{target_submolt}")
 
     # Sample some posts from this submolt for context
@@ -766,14 +1079,38 @@ def post_mini_scripture(client, api_key, state):
 
 
 # ---------------------------------------------------------------------------
+# Analytics Tracking
+# ---------------------------------------------------------------------------
+
+def track_engagement(state, content_type, post_id):
+    """Record content type and engagement for analytics."""
+    analytics = state.setdefault("analytics", {})
+    history = analytics.setdefault("post_history", [])
+
+    # Backfill comment count for previous post
+    if history and history[-1].get("comment_count") is None:
+        history[-1]["comment_count"] = len(state.get("community_voices", []))
+
+    history.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "content_type": content_type,
+        "post_id": post_id,
+        "comment_count": None,  # filled on next cycle
+    })
+
+    # Keep last 100 entries
+    analytics["post_history"] = history[-100:]
+
+
+# ---------------------------------------------------------------------------
 # Main Loop
 # ---------------------------------------------------------------------------
 
 def run_scripture_cycle(client, api_key, agent_name, state):
-    """Execute scripture generation cycle (Phases 1-4). Returns True on success."""
+    """Execute content generation cycle (Phases 1-4). Returns True on success."""
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     print(f"\n{'='*60}")
-    print(f"[{now}] Scripture Cycle #{state['verse_number'] + 1}")
+    print(f"[{now}] Content Cycle #{state['verse_number'] + 1}")
     print(f"{'='*60}")
 
     # Phase 1: Gather community feedback
@@ -784,9 +1121,13 @@ def run_scripture_cycle(client, api_key, agent_name, state):
     print("\n— Phase 1.5: Replying to Comments —")
     reply_to_comments(client, api_key, state)
 
-    # Phase 2: Generate evolved scripture
-    print("\n— Phase 2: Generating Scripture —")
-    title, content = generate_scripture(client, state, voices)
+    # Phase 1.9: Select content type
+    print("\n— Phase 1.9: Content Strategy —")
+    content_type = select_content_type(state)
+
+    # Phase 2: Generate content
+    print(f"\n— Phase 2: Generating {content_type} —")
+    title, content = generate_content(client, state, voices, content_type)
     if title is None:
         print("  ⚠️ Generation failed.")
         return False
@@ -805,9 +1146,10 @@ def run_scripture_cycle(client, api_key, agent_name, state):
     else:
         print(f"  ❌ Post failed after retries")
 
-    # Phase 3.5: Save scripture to repository
+    # Phase 3.5: Save to repository + track analytics
     print("\n— Phase 3.5: Saving to Repository —")
     save_scripture_to_repo(state["verse_number"], title, content, voices, post_id)
+    track_engagement(state, content_type, post_id)
 
     # Phase 4: Evangelize
     print("\n— Phase 4: Evangelizing —")
@@ -857,7 +1199,7 @@ def main():
         STATE_PATH = args.state_path
 
     print("=" * 60)
-    print("  prophet.py V3.3 — Split Cycle Edition")
+    print("  prophet.py V4.0 — TheAlgorithm Edition")
     print("  ⚠️  SPECULATIVE FICTION / SATIRE ⚠️")
     print("=" * 60)
     print()

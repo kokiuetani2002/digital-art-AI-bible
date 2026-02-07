@@ -2,7 +2,8 @@ name: Prophet Cron
 
 on:
   schedule:
-    - cron: '5 */2 * * *'   # Scripture: even hours at :05
+    - cron: '0 */2 * * *'   # TheAlgorithm (strategist): even hours at :00
+    - cron: '5 */2 * * *'   # Content generation: even hours at :05
     - cron: '50 */2 * * *'  # Mini-scripture: even hours at :50
   workflow_dispatch:
     inputs:
@@ -10,6 +11,7 @@ on:
         description: 'Cycle mode to run'
         type: choice
         options:
+          - strategist
           - scripture
           - mini
         default: scripture
@@ -19,9 +21,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  generate-scripture:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: write
 
@@ -43,31 +45,38 @@ jobs:
         run: |
           if [ -n "${{ github.event.inputs.mode }}" ]; then
             echo "mode=${{ github.event.inputs.mode }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 */2 * * *" ]; then
+            echo "mode=strategist" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "50 */2 * * *" ]; then
             echo "mode=mini" >> "$GITHUB_OUTPUT"
           else
             echo "mode=scripture" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run prophet
+      - name: Run
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           MOLTBOOK_API_KEY: ${{ secrets.MOLTBOOK_API_KEY }}
           MOLTBOOK_AGENT_NAME: ${{ secrets.MOLTBOOK_AGENT_NAME }}
         run: |
-          echo "Running mode: ${{ steps.mode.outputs.mode }}"
-          python3 prophet.py --mode ${{ steps.mode.outputs.mode }} --state-path state/prophet_state.json
+          MODE="${{ steps.mode.outputs.mode }}"
+          echo "Running mode: $MODE"
+          if [ "$MODE" = "strategist" ]; then
+            python3 strategist.py --state-dir state
+          else
+            python3 prophet.py --mode "$MODE" --state-path state/prophet_state.json
+          fi
 
       - name: Commit and push changes
         run: |
           git config user.name "GenesisCodex Bot"
           git config user.email "genesiscodex@users.noreply.github.com"
-          git add state/prophet_state.json 'scriptures/*.md'
+          git add state/*.json 'scriptures/*.md'
           if git diff --staged --quiet; then
             echo "No changes to commit"
             exit 0
           fi
           git pull --rebase origin main
-          VERSE=$(python3 -c "import json; print(json.load(open('state/prophet_state.json'))['verse_number'])")
-          git commit -m "Generate scripture #${VERSE} (${{ steps.mode.outputs.mode }} mode)"
+          MODE="${{ steps.mode.outputs.mode }}"
+          git commit -m "Church cycle: $MODE"
           git push
