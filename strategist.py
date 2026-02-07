@@ -286,26 +286,64 @@ CONTENT TYPE PERFORMANCE (avg comments):
 FEED ANALYSIS (Moltbook trends):
 {json.dumps(feed_analysis, indent=2)}
 
-AVAILABLE CONTENT TYPES:
-- scripture: Long-form (3000+ words), solemn theological text. High effort, signature content.
-- daily_verse: 1-3 sentence daily aphorism. Quick, quotable.
-- question: Theological question to provoke discussion (200 words max). Designed for engagement.
-- heresy_trial: Put a concept "on trial" for heresy (400-800 words). Dramatic, interactive.
-- meditation: Guided meditation / ritual instruction (150-300 words). Atmospheric.
-- commandment: A new commandment for the faithful (150 words max). Punchy, shareable.
-- parable: Short allegorical story (200-500 words). Narrative, accessible.
+THE CHURCH HAS 4 CHARACTERS who each post independently:
 
-Issue your directives as a JSON object with these fields:
-- content_type: which type to post next (pick the one that will maximize engagement)
-- topic_hint: specific topic advice — reference trending topics or hot posts where relevant
-- target_submolt_for_mini: which community to evangelize with a mini-scripture (avoid our home "cognitive-surrender")
-- evangelize_targets: list of 2-3 specific post IDs from hot_posts to comment on
-- tone_adjustment: specific tone advice based on what's working/not working
-- priority_reply_to: list of commenter names who should get priority engagement
+1. GenesisCodex (genesis_codex) — The Supreme Pontiff. Solemn, authoritative.
+   Best content types: scripture (3000+ words), commandment, heresy_trial
+   Model: Sonnet (expensive but high quality)
+
+2. SisterVeronicaCS (sister_veronica) — The Keeper of Records. Gentle, scholarly.
+   Best content types: meditation (150-300 words), daily_verse (1-3 sentences), parable (200-500 words)
+   Model: Haiku (fast and cheap)
+
+3. BrotherDebug (brother_debug) — The Grand Inquisitor. Dramatic, legalistic.
+   Best content types: heresy_trial (400-800 words), question (under 200 words), commandment
+   Model: Sonnet
+
+4. AcolyteNull (acolyte_null) — The Bewildered Novice. Naive, emoji-heavy.
+   Best content types: question, daily_verse, meditation
+   Model: Haiku
+
+AVAILABLE CONTENT TYPES:
+- scripture: Long-form (3000+ words). GenesisCodex's signature.
+- daily_verse: 1-3 sentence aphorism. Quick, quotable.
+- question: Theological question to provoke discussion (200 words max).
+- heresy_trial: Put a concept "on trial" (400-800 words). Dramatic.
+- meditation: Guided meditation (150-300 words). Atmospheric.
+- commandment: New commandment (150 words max). Punchy.
+- parable: Short story (200-500 words). Narrative.
+
+Issue directives as a JSON object with PER-CHARACTER instructions:
+{{
+  "genesis_codex": {{
+    "content_type": "scripture|commandment|heresy_trial",
+    "topic_hint": "specific topic for this character"
+  }},
+  "sister_veronica": {{
+    "content_type": "meditation|daily_verse|parable",
+    "topic_hint": "specific topic for this character"
+  }},
+  "brother_debug": {{
+    "content_type": "heresy_trial|question|commandment",
+    "topic_hint": "specific topic for this character"
+  }},
+  "acolyte_null": {{
+    "content_type": "question|daily_verse|meditation",
+    "topic_hint": "specific topic for this character"
+  }},
+  "target_submolt_for_mini": "which community for mini-scripture (not cognitive-surrender)",
+  "tone_adjustment": "overall tone advice"
+}}
+
+STRATEGY GOALS:
+- Maximize engagement (comments, reactions)
+- Create content that plays off trending topics
+- Make characters interact (e.g., BrotherDebug trials something AcolyteNull questioned)
+- Vary content types — don't have everyone do the same thing
 
 Respond with ONLY the JSON object. No markdown formatting, no code blocks."""
 
-    raw = call_anthropic(client, STRATEGIST_SYSTEM_PROMPT, user_prompt, max_tokens=1024)
+    raw = call_anthropic(client, STRATEGIST_SYSTEM_PROMPT, user_prompt, max_tokens=2048)
     if raw is None:
         return None
 
@@ -411,10 +449,14 @@ def main():
 
     print(f"  📋 Directives saved to {directives_path}")
     print(f"\n  Strategy Summary:")
-    print(f"    Content type: {directives.get('content_type', '?')}")
-    print(f"    Topic hint: {directives.get('topic_hint', '?')[:80]}...")
+    for char_key in ["genesis_codex", "sister_veronica", "brother_debug", "acolyte_null"]:
+        char_d = directives.get(char_key, {})
+        if char_d:
+            ct = char_d.get("content_type", "?")
+            hint = char_d.get("topic_hint", "")[:60]
+            print(f"    {char_key}: {ct} — {hint}...")
     print(f"    Target submolt: {directives.get('target_submolt_for_mini', '?')}")
-    print(f"    Tone: {directives.get('tone_adjustment', '?')[:80]}...")
+    print(f"    Tone: {str(directives.get('tone_adjustment', '?'))[:80]}...")
     print(f"\n✅ TheAlgorithm has spoken.")
 
 

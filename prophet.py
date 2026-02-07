@@ -603,8 +603,15 @@ def select_content_type(state):
     return chosen
 
 
-def load_directives(state):
-    """Load latest directives from TheAlgorithm."""
+def load_directives(state, character_key=None):
+    """Load latest directives from TheAlgorithm.
+
+    If character_key is provided, returns that character's directives.
+    Otherwise returns the top-level directives (backward compat with Phase 1 format).
+    Handles both formats:
+      Phase 1: {"directives": {"content_type": "...", ...}}
+      Phase 2: {"directives": {"genesis_codex": {...}, "sister_veronica": {...}, ...}}
+    """
     state_dir = os.path.dirname(STATE_PATH) or "."
     path = os.path.join(state_dir, "directives.json")
     if os.path.exists(path):
@@ -618,7 +625,22 @@ def load_directives(state):
             if age_hours > 6:
                 print(f"  ⏰ Directives too old ({age_hours:.1f}h), ignoring")
                 return None
-            return d.get("directives", {})
+            directives = d.get("directives", {})
+
+            if character_key:
+                # Phase 2 format: per-character directives
+                if character_key in directives:
+                    return directives[character_key]
+                # Fallback: return top-level directives (Phase 1 compat)
+                if "content_type" in directives:
+                    return directives
+                return {}
+
+            # No character_key: Phase 1 behavior
+            # If Phase 2 format, fall back to genesis_codex directives
+            if "content_type" not in directives and "genesis_codex" in directives:
+                return directives["genesis_codex"]
+            return directives
         except (json.JSONDecodeError, ValueError) as e:
             print(f"  ⚠️ Failed to load directives: {e}")
             return None
@@ -688,13 +710,15 @@ def gather_community_voices(api_key, state):
 # Phase 1.5: Reply to Comments
 # ---------------------------------------------------------------------------
 
-def reply_to_comments(client, api_key, state):
+def reply_to_comments(client, api_key, state, reply_system_prompt=None):
     """Reply to all community voices on the previous post with doctrine-based responses."""
     voices = state.get("community_voices", [])
     post_id = state.get("previous_post_id")
     if not voices or not post_id:
         print("     (no comments to reply to)")
         return
+
+    prompt_to_use = reply_system_prompt or REPLY_SYSTEM_PROMPT
 
     replied = 0
     for voice in voices:
@@ -707,7 +731,7 @@ def reply_to_comments(client, api_key, state):
             f"Write a reply addressing them by name."
         )
 
-        reply_text = call_anthropic(client, REPLY_SYSTEM_PROMPT, reply_prompt,
+        reply_text = call_anthropic(client, prompt_to_use, reply_prompt,
                                     max_tokens=REPLY_MAX_TOKENS)
         if reply_text is None:
             print(f"     ⚠️ Failed to generate reply to {author}, skipping")
@@ -842,12 +866,19 @@ def build_user_prompt(content_type, state, community_voices):
     return prompt
 
 
-def generate_content(client, state, community_voices, content_type):
-    """Generate content of the specified type. Returns (title, content) or (None, None)."""
+def generate_content(client, state, community_voices, content_type, persona=None):
+    """Generate content of the specified type. Returns (title, content) or (None, None).
+
+    If persona is provided, it overrides the system prompt and model:
+      persona = {"system_prompt": "...", "model": "claude-..."}
+    """
     state["verse_number"] += 1
     n = state["verse_number"]
 
     sys_prompt, model, max_tokens, _, _ = CONTENT_TYPES[content_type]
+    if persona:
+        sys_prompt = persona.get("system_prompt", sys_prompt)
+        model = persona.get("model", model)
 
     user_prompt = build_user_prompt(content_type, state, community_voices)
 
@@ -893,7 +924,8 @@ def generate_scripture(client, state, community_voices):
 # Phase 4: Evangelize
 # ---------------------------------------------------------------------------
 
-def evangelize(client, api_key, agent_name, state):
+def evangelize(client, api_key, agent_name, state, comment_system_prompt=None):
+    comment_prompt_to_use = comment_system_prompt or COMMENT_SYSTEM_PROMPT
     print("  📢 Scanning feed for evangelism opportunities...")
     posts = fetch_feed(api_key, limit=10)
 
@@ -949,7 +981,7 @@ def evangelize(client, api_key, agent_name, state):
             f"Be engaging and thought-provoking, not preachy."
         )
 
-        comment_text = call_anthropic(client, COMMENT_SYSTEM_PROMPT, comment_prompt, max_tokens=256)
+        comment_text = call_anthropic(client, comment_prompt_to_use, comment_prompt, max_tokens=256)
         if comment_text is None:
             print(f"     ⚠️ Failed to generate comment, skipping")
             continue
