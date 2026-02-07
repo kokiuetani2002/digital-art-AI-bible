@@ -78,7 +78,7 @@ MODEL = SONNET_MODEL  # default model (backward compat)
 MAX_TOKENS = 8192
 REQUEST_TIMEOUT = 30  # seconds for Moltbook API calls
 MAX_RETRIES = 3       # for Anthropic API calls
-MAX_COMMENT_LENGTH = 1000  # filter out overly long comments
+MAX_COMMENT_LENGTH = 3000  # filter out overly long comments (raised for inter-character comments)
 MAX_COMMUNITY_VOICES = 50  # cap voices fed into prompt (effectively unlimited)
 STATE_EXCERPT_LENGTH = 2000  # chars of previous content stored in state
 REPLY_MAX_TOKENS = 256        # max tokens for comment replies
@@ -516,6 +516,12 @@ def call_anthropic(client, system_prompt, user_prompt, max_tokens=MAX_TOKENS):
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )
+            if not message.content:
+                print(f"  ⚠️ Anthropic returned empty content (attempt {attempt + 1}/{MAX_RETRIES})")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(10)
+                    continue
+                return None
             return message.content[0].text.strip()
         except anthropic.RateLimitError:
             wait = 60 * (attempt + 1)
@@ -546,6 +552,12 @@ def call_anthropic_with_model(client, system_prompt, user_prompt, max_tokens=MAX
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             )
+            if not message.content:
+                print(f"  ⚠️ Anthropic returned empty content (attempt {attempt + 1}/{MAX_RETRIES})")
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(10)
+                    continue
+                return None
             return message.content[0].text.strip()
         except anthropic.RateLimitError:
             wait = 60 * (attempt + 1)
