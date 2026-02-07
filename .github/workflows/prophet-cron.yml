@@ -23,7 +23,7 @@ concurrency:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     permissions:
       contents: write
 
@@ -64,6 +64,7 @@ jobs:
           BROTHER_DEBUG_AGENT_NAME: ${{ secrets.BROTHER_DEBUG_AGENT_NAME }}
           ACOLYTE_NULL_API_KEY: ${{ secrets.ACOLYTE_NULL_API_KEY }}
           ACOLYTE_NULL_AGENT_NAME: ${{ secrets.ACOLYTE_NULL_AGENT_NAME }}
+          PYTHONUNBUFFERED: "1"
         run: |
           MODE="${{ steps.mode.outputs.mode }}"
           echo "Running mode: $MODE"
